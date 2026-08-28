@@ -1,5 +1,7 @@
 use crate::module_loader::ModuleLoaderState;
+use crate::value::{from_raw, to_raw};
 use crate::{Context, EngineError, EngineResult, Limits, QuickJsRuntime};
+use aura_bridge_value::Value;
 use aura_runtime_protocol::BridgeTransport;
 use libquickjs_ng_sys as qjs;
 use std::ffi::CString;
@@ -61,6 +63,54 @@ impl QuickJsPlugin {
     /// Calls the payload's `disable` lifecycle function.
     pub fn disable(&mut self) -> EngineResult<()> {
         self.call("disable")
+    }
+
+    /// Calls `invoke` with lossless Bridge values and returns its converted result.
+    pub fn invoke(
+        &mut self,
+        operation: &str,
+        input: &Value,
+        callback_id: u64,
+    ) -> EngineResult<Value> {
+        let callback_id =
+            i64::try_from(callback_id).map_err(|_| EngineError::new("invalid-value"))?;
+        let namespace = self
+            .namespace
+            .ok_or_else(|| EngineError::new("runtime-failure"))?;
+        let helper = self.runtime.value_helper()?;
+        self.runtime.run_with_deadline(deadline()?, |context| {
+            // SAFETY: Creates one string in the live owned context.
+            let operation_value = unsafe {
+                qjs::JS_NewStringLen(context.raw(), operation.as_ptr().cast(), operation.len())
+            };
+            let input_value = match to_raw(context, helper, input) {
+                Ok(value) => value,
+                Err(error) => {
+                    // SAFETY: operation_value belongs to this context and is released once.
+                    unsafe { qjs::JS_FreeValue(context.raw(), operation_value) };
+                    return Err(error);
+                }
+            };
+            // SAFETY: Creates a signed BigInt in this live context.
+            let callback_value = unsafe { qjs::JS_NewBigInt64(context.raw(), callback_id) };
+            let result = call_export_result(
+                context,
+                namespace,
+                "invoke",
+                &[operation_value, input_value, callback_value],
+            );
+            // SAFETY: JS_Call borrowed these arguments; all remain owned here and are released.
+            unsafe {
+                qjs::JS_FreeValue(context.raw(), operation_value);
+                qjs::JS_FreeValue(context.raw(), input_value);
+                qjs::JS_FreeValue(context.raw(), callback_value);
+            }
+            let result = result?;
+            let converted = from_raw(context, helper, result);
+            // SAFETY: result belongs to this context and is released exactly once.
+            unsafe { qjs::JS_FreeValue(context.raw(), result) };
+            converted
+        })
     }
 
     /// Calls the payload's `unload` lifecycle function and releases its namespace.
@@ -186,6 +236,18 @@ fn call_export(
     namespace: qjs::JSValue,
     name: &'static str,
 ) -> EngineResult<()> {
+    let result = call_export_result(context, namespace, name, &[])?;
+    // SAFETY: result belongs to this context and is released exactly once.
+    unsafe { qjs::JS_FreeValue(context.raw(), result) };
+    Ok(())
+}
+
+fn call_export_result(
+    context: &mut Context<'_>,
+    namespace: qjs::JSValue,
+    name: &'static str,
+    arguments: &[qjs::JSValue],
+) -> EngineResult<qjs::JSValue> {
     let name = CString::new(name).expect("static export name has no NUL");
     // SAFETY: namespace belongs to this context and name is NUL-terminated.
     let function = unsafe { qjs::JS_GetPropertyStr(context.raw(), namespace, name.as_ptr()) };
@@ -196,17 +258,22 @@ fn call_export(
     }
     // SAFETY: Creates the immediate undefined value for the owned context.
     let this_value = unsafe { qjs::JS_Ext_NewSpecialValue(qjs::JS_TAG_UNDEFINED, 0) };
-    // SAFETY: function and this_value belong to this context; no argument pointer is dereferenced.
-    let result = unsafe { qjs::JS_Call(context.raw(), function, this_value, 0, ptr::null_mut()) };
+    // SAFETY: function, this_value, and every borrowed argument belong to this context.
+    let result = unsafe {
+        qjs::JS_Call(
+            context.raw(),
+            function,
+            this_value,
+            arguments.len() as i32,
+            arguments.as_ptr().cast_mut(),
+        )
+    };
     // SAFETY: function and this_value have not been released and are no longer needed.
     unsafe {
         qjs::JS_FreeValue(context.raw(), function);
         qjs::JS_FreeValue(context.raw(), this_value);
     }
-    settle(context, result, "guest-exception").map(|value| {
-        // SAFETY: settle returns one owned value from this context.
-        unsafe { qjs::JS_FreeValue(context.raw(), value) };
-    })
+    settle(context, result, "guest-exception")
 }
 
 fn settle(

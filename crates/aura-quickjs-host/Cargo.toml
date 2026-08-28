@@ -6,6 +6,7 @@ license.workspace = true
 rust-version.workspace = true
 
 [dependencies]
+aura-bridge-value = { path = "../aura-bridge-value" }
 aura-quickjs-engine = { path = "../aura-quickjs-engine" }
 aura-runtime-protocol = { path = "../aura-runtime-protocol" }
 serde = { version = "1.0.219", features = ["derive"] }

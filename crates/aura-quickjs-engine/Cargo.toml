@@ -6,6 +6,7 @@ license.workspace = true
 rust-version.workspace = true
 
 [dependencies]
+aura-bridge-value = { path = "../aura-bridge-value" }
 aura-runtime-protocol = { path = "../aura-runtime-protocol" }
 libquickjs-ng-sys = "=0.13.0"
 

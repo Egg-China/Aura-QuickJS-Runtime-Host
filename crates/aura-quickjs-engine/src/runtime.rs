@@ -1,4 +1,5 @@
 use crate::module_loader::ModuleLoaderState;
+use crate::value::ValueIntrinsics;
 use libquickjs_ng_sys as qjs;
 use std::cell::Cell;
 use std::ffi::{CStr, CString, c_void};
@@ -67,6 +68,7 @@ pub struct QuickJsRuntime {
     context: NonNull<qjs::JSContext>,
     interrupt: Box<InterruptState>,
     pub(crate) module_loader: Option<Box<ModuleLoaderState>>,
+    pub(crate) value_intrinsics: Option<ValueIntrinsics>,
     _not_send_or_sync: std::marker::PhantomData<Rc<()>>,
 }
 
@@ -107,13 +109,16 @@ impl QuickJsRuntime {
                 return Err(EngineError::new("resource-limit"));
             };
 
-            Ok(Self {
+            let mut runtime = Self {
                 runtime,
                 context,
                 interrupt,
                 module_loader: None,
+                value_intrinsics: None,
                 _not_send_or_sync: std::marker::PhantomData,
-            })
+            };
+            runtime.initialize_value_intrinsics()?;
+            Ok(runtime)
         }
     }
 
@@ -241,7 +246,7 @@ impl Context<'_> {
     /// # Safety
     ///
     /// The context must have a pending exception and no other code may access it concurrently.
-    unsafe fn discard_exception(&self) {
+    pub(crate) unsafe fn discard_exception(&self) {
         // SAFETY: The caller guarantees a pending exception on this owned context.
         let exception = unsafe { qjs::JS_GetException(self.context.as_ptr()) };
         // SAFETY: exception was just removed from this context and must be released once.
@@ -263,6 +268,10 @@ impl Context<'_> {
 impl Drop for QuickJsRuntime {
     fn drop(&mut self) {
         self.interrupt.deadline.set(None);
+        if let Some(intrinsics) = self.value_intrinsics.take() {
+            // SAFETY: The helper value belongs to the still-live owned context.
+            unsafe { qjs::JS_FreeValue(self.context.as_ptr(), intrinsics.raw()) };
+        }
         // SAFETY: Both pointers were created together and are exclusively owned. QuickJS requires
         // all contexts to be freed before their runtime. The handler state remains alive until the
         // runtime has been destroyed.

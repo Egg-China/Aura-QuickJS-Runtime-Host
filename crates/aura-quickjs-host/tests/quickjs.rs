@@ -1,3 +1,4 @@
+use aura_bridge_value::Value;
 use aura_quickjs_host::{ProcessServer, QuickJsGuestEngine};
 use aura_runtime_protocol::{Message, MessageBody, read_frame, write_frame};
 use std::io::{Cursor, Write};
@@ -27,8 +28,18 @@ fn drives_a_real_quickjs_payload_through_process_lifecycle() {
         message(1, MessageBody::Hello),
         load(3, package.path()),
         message(5, MessageBody::Enable),
-        message(7, MessageBody::Disable),
-        message(9, MessageBody::Shutdown),
+        message(
+            7,
+            MessageBody::Invoke {
+                operation: "echo".to_owned(),
+                input: Value::Map(vec![("bytes".to_owned(), Value::Bytes(vec![1, 2, 3]))])
+                    .to_wire()
+                    .expect("encode input"),
+                callback_id: 47,
+            },
+        ),
+        message(9, MessageBody::Disable),
+        message(11, MessageBody::Shutdown),
     ]);
     let output = SharedOutput::default();
     ProcessServer::new(
@@ -40,9 +51,21 @@ fn drives_a_real_quickjs_payload_through_process_lifecycle() {
     .expect("serve real payload");
 
     let responses = output.messages();
-    assert_eq!(responses.len(), 5);
+    assert_eq!(responses.len(), 6);
     assert!(
-        responses
+        responses[..3]
+            .iter()
+            .all(|message| matches!(message.body(), MessageBody::Ok))
+    );
+    let MessageBody::Result { output } = responses[3].body() else {
+        panic!("invoke did not return a result");
+    };
+    assert_eq!(
+        Value::from_wire(output).expect("decode output"),
+        Value::Map(vec![("bytes".to_owned(), Value::Bytes(vec![1, 2, 3]))])
+    );
+    assert!(
+        responses[4..]
             .iter()
             .all(|message| matches!(message.body(), MessageBody::Ok))
     );

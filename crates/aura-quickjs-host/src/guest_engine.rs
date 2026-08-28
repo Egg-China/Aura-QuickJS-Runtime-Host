@@ -1,4 +1,5 @@
 use crate::{GuestEngine, HostError, HostResult, PayloadDescriptor};
+use aura_bridge_value::Value;
 use aura_quickjs_engine::{EngineError, QuickJsPlugin};
 use aura_runtime_protocol::BridgeTransport;
 use std::path::Path;
@@ -39,16 +40,13 @@ impl GuestEngine for QuickJsGuestEngine {
         self.plugin_mut()?.enable().map_err(host_error)
     }
 
-    fn invoke(
-        &mut self,
-        _operation: &str,
-        _input: &[u8],
-        _callback_id: u64,
-    ) -> HostResult<Vec<u8>> {
-        Err(HostError::new(
-            "invalid-value",
-            "Bridge Value mapping is unavailable",
-        ))
+    fn invoke(&mut self, operation: &str, input: &[u8], callback_id: u64) -> HostResult<Vec<u8>> {
+        let input = Value::from_wire(input).map_err(|_| invalid_value())?;
+        self.plugin_mut()?
+            .invoke(operation, &input, callback_id)
+            .map_err(host_error)?
+            .to_wire()
+            .map_err(|_| invalid_value())
     }
 
     fn disable(&mut self) -> HostResult<()> {
@@ -73,4 +71,8 @@ fn host_error(error: EngineError) -> HostError {
 
 fn invalid_state() -> HostError {
     HostError::new("invalid-state", "QuickJS payload is not loaded")
+}
+
+fn invalid_value() -> HostError {
+    HostError::new("invalid-value", "Bridge Value is invalid")
 }
