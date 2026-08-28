@@ -1,5 +1,7 @@
 /target/
 /.gradle/
+/host-plugin/.gradle/
+/host-plugin/build/
 /artifacts/
 *.class
 *.jar

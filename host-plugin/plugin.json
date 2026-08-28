@@ -1,0 +1,28 @@
+{
+  "schemaVersion": 5,
+  "id": "dev.hmclce.runtime.quickjs-host",
+  "name": "Aura QuickJS Runtime Host",
+  "version": "0.1.0-beta.1",
+  "description": "Isolated QuickJS-NG runtime provider for schema-v5 JavaScript plugins.",
+  "author": "Aura Launcher Community",
+  "type": "java",
+  "runtime": "java",
+  "abi": 2,
+  "entrypoint": "dev.hmclce.runtime.quickjs.QuickJsRuntimeHostPlugin",
+  "pluginKind": "runtime-provider",
+  "executionMode": "embedded",
+  "platforms": ["windows-x64", "windows-arm64", "linux-x64", "linux-arm64", "macos-x64", "macos-arm64"],
+  "dependencies": [],
+  "permissions": ["native-code"],
+  "requiredPermissions": ["native-code"],
+  "hooks": [],
+  "patches": [],
+  "launcherVersion": ">=27.1-0-next",
+  "providesRuntimes": [{
+    "runtime": "javascript",
+    "abis": [1],
+    "bridgeAbi": 1,
+    "executionModes": ["isolated"],
+    "features": ["bridge", "hooks", "native"]
+  }]
+}
