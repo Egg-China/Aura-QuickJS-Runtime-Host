@@ -10,6 +10,7 @@ version = "0.1.0-beta.1"
 name = "aura-quickjs-host"
 version = "0.1.0-beta.1"
 dependencies = [
+ "aura-runtime-protocol",
  "serde",
  "serde_json",
  "tempfile",

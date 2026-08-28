@@ -12,6 +12,72 @@ pub const PROTOCOL_VERSION: i64 = 1;
 /// Maximum accepted encoded Bridge Value frame body.
 pub const MAX_FRAME_BYTES: u32 = 16 * 1024 * 1024;
 
+/// Failure returned by one child-to-launcher Bridge callback.
+#[derive(Debug)]
+pub enum BridgeError {
+    /// The launcher rejected the callback with a stable redacted code.
+    Callback(String),
+    /// Callback framing or transport violated process protocol v1.
+    Protocol(ProtocolError),
+}
+
+impl BridgeError {
+    /// Returns the stable error code safe to expose to a guest runtime.
+    #[must_use]
+    pub fn stable_code(&self) -> &str {
+        match self {
+            Self::Callback(code) => code,
+            Self::Protocol(_) => "protocol-error",
+        }
+    }
+}
+
+impl Display for BridgeError {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Callback(code) => write!(formatter, "Aura Bridge callback failed: {code}"),
+            Self::Protocol(error) => write!(formatter, "Aura Bridge protocol failed: {error}"),
+        }
+    }
+}
+
+impl std::error::Error for BridgeError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Callback(_) => None,
+            Self::Protocol(error) => Some(error),
+        }
+    }
+}
+
+/// Language-neutral child-side transport for Aura Bridge callbacks.
+pub trait BridgeTransport: Send + Sync {
+    /// Invokes one launcher Bridge operation for the loaded plugin and session.
+    fn invoke(
+        &self,
+        plugin_id: u64,
+        session: u64,
+        operation: &str,
+        input: &[u8],
+    ) -> Result<Vec<u8>, BridgeError>;
+
+    /// Retains one generation-safe launcher object handle.
+    fn retain_handle(
+        &self,
+        session: u64,
+        object_id: u64,
+        generation: u64,
+    ) -> Result<(), BridgeError>;
+
+    /// Releases one generation-safe launcher object handle.
+    fn release_handle(
+        &self,
+        session: u64,
+        object_id: u64,
+        generation: u64,
+    ) -> Result<(), BridgeError>;
+}
+
 /// One validated isolated Host protocol message.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Message {

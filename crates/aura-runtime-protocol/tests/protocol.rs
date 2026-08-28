@@ -1,5 +1,7 @@
 use aura_bridge_value::Value;
-use aura_runtime_protocol::{MAX_FRAME_BYTES, Message, MessageBody, read_frame, write_frame};
+use aura_runtime_protocol::{
+    BridgeError, MAX_FRAME_BYTES, Message, MessageBody, ProtocolError, read_frame, write_frame,
+};
 use std::io::Cursor;
 
 #[test]
@@ -266,6 +268,14 @@ fn rejects_wrong_versions_kinds_payload_fields_and_truncation() {
     )
     .expect("valid logical result");
     assert!(write_frame(&mut Vec::new(), &oversized_body).is_err());
+}
+
+#[test]
+fn bridge_errors_preserve_callback_codes_and_redact_protocol_failures() {
+    let callback = BridgeError::Callback("permission-denied".into());
+    assert_eq!(callback.stable_code(), "permission-denied");
+    let protocol = BridgeError::Protocol(ProtocolError::InvalidData("private detail"));
+    assert_eq!(protocol.stable_code(), "protocol-error");
 }
 
 fn raw_message(version: i64, request_id: i64, kind: &str, payload: Value) -> Vec<u8> {
