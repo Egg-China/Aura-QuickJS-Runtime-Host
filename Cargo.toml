@@ -1,0 +1,15 @@
+[workspace]
+members = ["crates/aura-bridge-value", "crates/aura-runtime-protocol"]
+resolver = "3"
+
+[workspace.package]
+edition = "2024"
+license = "GPL-3.0-or-later"
+rust-version = "1.97.1"
+version = "0.1.0-beta.1"
+
+[workspace.lints.rust]
+unsafe_op_in_unsafe_fn = "deny"
+
+[workspace.lints.clippy]
+missing_safety_doc = "deny"

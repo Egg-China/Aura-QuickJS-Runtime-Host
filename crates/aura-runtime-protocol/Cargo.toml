@@ -1,0 +1,12 @@
+[package]
+name = "aura-runtime-protocol"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+aura-bridge-value = { path = "../aura-bridge-value" }
+
+[lints]
+workspace = true
