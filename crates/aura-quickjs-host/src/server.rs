@@ -36,6 +36,7 @@ pub trait GuestEngine {
 pub struct ProcessServer<R, W, E> {
     reader: Arc<Mutex<R>>,
     writer: Arc<Mutex<W>>,
+    poison: Arc<Mutex<Option<&'static str>>>,
     engine: E,
     state: LifecycleState,
 }
@@ -52,6 +53,7 @@ where
         Self {
             reader: Arc::new(Mutex::new(reader)),
             writer: Arc::new(Mutex::new(writer)),
+            poison: Arc::new(Mutex::new(None)),
             engine,
             state: LifecycleState::AwaitHello,
         }
@@ -77,7 +79,15 @@ where
                 ));
             }
             let request_id = message.request_id();
-            let (response, close) = self.handle(message.body().clone())?;
+            let handled = self.handle(message.body().clone());
+            if let Some(reason) = *self
+                .poison
+                .lock()
+                .map_err(|_| invalid_protocol("process poison lock is poisoned"))?
+            {
+                return Err(invalid_protocol(reason));
+            }
+            let (response, close) = handled?;
             {
                 let mut writer = self
                     .writer
@@ -130,7 +140,11 @@ where
                 ));
             }
         };
-        Ok(result.unwrap_or_else(|error| (error_body(error), false)))
+        match result {
+            Ok(response) => Ok(response),
+            Err(error) if error.is_fatal() => Err(invalid_protocol(error.code())),
+            Err(error) => Ok((error_body(error), false)),
+        }
     }
 
     fn hello(&mut self) -> HostResult<()> {
@@ -154,6 +168,7 @@ where
             plugin_id,
             session,
             next_callback_id: AtomicU64::new(2),
+            poison: Arc::clone(&self.poison),
         });
         self.engine.load(
             Path::new(package_root),
@@ -235,6 +250,7 @@ struct ProcessBridge<R, W> {
     plugin_id: u64,
     session: u64,
     next_callback_id: AtomicU64,
+    poison: Arc<Mutex<Option<&'static str>>>,
 }
 
 impl<R, W> ProcessBridge<R, W>
@@ -245,48 +261,56 @@ where
     fn call(&self, body: MessageBody) -> Result<MessageBody, BridgeError> {
         let request_id = self.next_callback_id.fetch_add(2, Ordering::Relaxed);
         if request_id == 0 || request_id > i64::MAX as u64 {
-            return Err(BridgeError::Protocol(invalid_protocol(
-                "callback request ID overflow",
-            )));
+            return Err(self.protocol_failure(invalid_protocol("callback request ID overflow")));
         }
-        let message = Message::new(request_id, body).map_err(BridgeError::Protocol)?;
+        let message =
+            Message::new(request_id, body).map_err(|error| self.protocol_failure(error))?;
         {
             let mut writer = self.writer.lock().map_err(|_| {
-                BridgeError::Protocol(invalid_protocol("process writer lock is poisoned"))
+                self.protocol_failure(invalid_protocol("process writer lock is poisoned"))
             })?;
-            write_frame(&mut *writer, &message).map_err(BridgeError::Protocol)?;
+            write_frame(&mut *writer, &message).map_err(|error| self.protocol_failure(error))?;
             writer
                 .flush()
                 .map_err(ProtocolError::Io)
-                .map_err(BridgeError::Protocol)?;
+                .map_err(|error| self.protocol_failure(error))?;
         }
         let response = {
             let mut reader = self.reader.lock().map_err(|_| {
-                BridgeError::Protocol(invalid_protocol("process reader lock is poisoned"))
+                self.protocol_failure(invalid_protocol("process reader lock is poisoned"))
             })?;
-            read_frame(&mut *reader).map_err(BridgeError::Protocol)?
+            read_frame(&mut *reader).map_err(|error| self.protocol_failure(error))?
         }
-        .ok_or_else(|| BridgeError::Protocol(invalid_protocol("callback response is missing")))?;
+        .ok_or_else(|| self.protocol_failure(invalid_protocol("callback response is missing")))?;
         if response.request_id() != request_id {
-            return Err(BridgeError::Protocol(invalid_protocol(
-                "callback response request ID mismatch",
-            )));
+            return Err(
+                self.protocol_failure(invalid_protocol("callback response request ID mismatch"))
+            );
         }
         Ok(response.body().clone())
     }
 
+    fn protocol_failure(&self, error: ProtocolError) -> BridgeError {
+        let reason = match &error {
+            ProtocolError::InvalidData(reason) => *reason,
+            ProtocolError::Io(_) => "Bridge callback I/O failure",
+        };
+        if let Ok(mut poison) = self.poison.lock()
+            && poison.is_none()
+        {
+            *poison = Some(reason);
+        }
+        BridgeError::Protocol(error)
+    }
+
     fn handle_call(&self, session: u64, body: MessageBody) -> Result<(), BridgeError> {
         if session != self.session {
-            return Err(BridgeError::Protocol(invalid_protocol(
-                "callback session mismatch",
-            )));
+            return Err(self.protocol_failure(invalid_protocol("callback session mismatch")));
         }
         match self.call(body)? {
             MessageBody::CallbackResult { output } if output.is_empty() => Ok(()),
             MessageBody::CallbackError { code } => Err(BridgeError::Callback(code)),
-            _ => Err(BridgeError::Protocol(invalid_protocol(
-                "invalid handle callback response",
-            ))),
+            _ => Err(self.protocol_failure(invalid_protocol("invalid handle callback response"))),
         }
     }
 }
@@ -304,9 +328,7 @@ where
         input: &[u8],
     ) -> Result<Vec<u8>, BridgeError> {
         if plugin_id != self.plugin_id || session != self.session {
-            return Err(BridgeError::Protocol(invalid_protocol(
-                "callback owner mismatch",
-            )));
+            return Err(self.protocol_failure(invalid_protocol("callback owner mismatch")));
         }
         match self.call(MessageBody::BridgeInvoke {
             operation: operation.to_owned(),
@@ -314,9 +336,7 @@ where
         })? {
             MessageBody::CallbackResult { output } => Ok(output),
             MessageBody::CallbackError { code } => Err(BridgeError::Callback(code)),
-            _ => Err(BridgeError::Protocol(invalid_protocol(
-                "invalid Bridge callback response",
-            ))),
+            _ => Err(self.protocol_failure(invalid_protocol("invalid Bridge callback response"))),
         }
     }
 

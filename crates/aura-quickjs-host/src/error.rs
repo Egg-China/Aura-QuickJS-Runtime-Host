@@ -30,6 +30,14 @@ impl HostError {
     pub const fn code(&self) -> &'static str {
         self.code
     }
+
+    /// Reports whether continuing could reuse inconsistent runtime state.
+    pub(crate) fn is_fatal(&self) -> bool {
+        matches!(
+            self.code,
+            "deadline-exceeded" | "resource-limit" | "runtime-failure"
+        )
+    }
 }
 
 impl Display for HostError {
