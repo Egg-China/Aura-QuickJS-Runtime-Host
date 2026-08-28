@@ -1,0 +1,98 @@
+name: Draft QuickJS Runtime Host release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  actions: read
+  contents: write
+
+concurrency:
+  group: quickjs-release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  AURA_REPOSITORY: Egg-China/Aura-Launcher
+  AURA_COMMIT: c2d7ec3201825308c360c1a41aeafebcd7145e74
+  AURA_RUN_ID: "33196503483"
+  AURA_JAR_SHA256: 2153be49da69c055232872c95a171091a526be24357b6f2b82b5af8f6d2a67c3
+  HOST_VERSION: 0.1.0-beta.1
+
+jobs:
+  draft:
+    name: Verify and create draft prerelease
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Check out exact release source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+
+      - name: Download successful same-commit CI release input
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if ($env:GITHUB_REF_NAME -cne "v$env:HOST_VERSION") {
+              throw "Release tag must be v$env:HOST_VERSION"
+          }
+          $runs = @(gh run list --repo $env:GITHUB_REPOSITORY --workflow ci.yml `
+              --commit $env:GITHUB_SHA --status completed --limit 20 `
+              --json databaseId,conclusion,headSha,headBranch | ConvertFrom-Json)
+          $run = @($runs | Where-Object {
+              $_.conclusion -ceq 'success' -and $_.headSha -ceq $env:GITHUB_SHA -and
+              $_.headBranch -ceq 'main'
+          } | Select-Object -First 1)
+          if ($run.Count -ne 1) { throw 'No successful same-commit main CI run exists' }
+          gh run download $run[0].databaseId --repo $env:GITHUB_REPOSITORY `
+              --name quickjs-runtime-host-release-input --dir release
+
+      - name: Reverify NPL bytes and provenance
+        shell: pwsh
+        run: |
+          & ./tools/verify-quickjs-host-artifacts.ps1 `
+              -ArtifactManifest release/quickjs-runtime-host-manifest.json `
+              -PackageDirectory release
+
+      - name: Package author SDK and checksums
+        shell: pwsh
+        run: |
+          Add-Type -AssemblyName System.IO.Compression
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          $sdkPath = Join-Path $PWD "release/aura-quickjs-runtime-sdk-v$env:HOST_VERSION.zip"
+          $archive = [System.IO.Compression.ZipFile]::Open(
+              $sdkPath, [System.IO.Compression.ZipArchiveMode]::Create)
+          try {
+              $timestamp = [DateTimeOffset]::new(1980, 1, 1, 0, 0, 0, [TimeSpan]::Zero)
+              foreach ($name in @('README.md', 'aura-runtime.d.ts')) {
+                  $entry = $archive.CreateEntry($name, [IO.Compression.CompressionLevel]::Optimal)
+                  $entry.LastWriteTime = $timestamp
+                  $input = [IO.File]::OpenRead((Join-Path 'sdk' $name))
+                  $output = $entry.Open()
+                  try { $input.CopyTo($output) } finally { $output.Dispose(); $input.Dispose() }
+              }
+          } finally { $archive.Dispose() }
+          $assets = @(Get-ChildItem release -File | Where-Object Name -ne 'SHA256SUMS.txt' | Sort-Object Name)
+          $lines = @($assets | ForEach-Object {
+              $hash = (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+              "$hash  $($_.Name)"
+          })
+          [IO.File]::WriteAllLines(
+              (Join-Path $PWD 'release/SHA256SUMS.txt'),
+              $lines,
+              [Text.UTF8Encoding]::new($false)
+          )
+
+      - name: Create immutable draft prerelease
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $existing = gh release view $env:GITHUB_REF_NAME --repo $env:GITHUB_REPOSITORY 2>$null
+          if ($LASTEXITCODE -eq 0) { throw 'Release already exists for this immutable tag' }
+          $assets = @(Get-ChildItem release -File | Sort-Object Name | ForEach-Object FullName)
+          gh release create $env:GITHUB_REF_NAME --repo $env:GITHUB_REPOSITORY `
+              --title "Aura QuickJS Runtime Host $env:HOST_VERSION" `
+              --notes 'First beta of the isolated QuickJS-NG Runtime Host for Aura 27.1 Next.' `
+              --draft --prerelease @assets

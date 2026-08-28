@@ -1,4 +1,5 @@
 /target/
+/.ci/
 /.gradle/
 /host-plugin/.gradle/
 /host-plugin/build/

@@ -1,0 +1,10 @@
+{
+  "schemaVersion": 2,
+  "id": "dev.hmclce.runtime.quickjs-host",
+  "repository": "github.com/Egg-China/Aura-QuickJS-Runtime-Host",
+  "license": "GPL-3.0-or-later",
+  "website": "https://github.com/Egg-China/Aura-QuickJS-Runtime-Host",
+  "source": "https://github.com/Egg-China/Aura-QuickJS-Runtime-Host",
+  "readmeUrl": "https://raw.githubusercontent.com/Egg-China/Aura-QuickJS-Runtime-Host/main/README.md",
+  "versions": []
+}

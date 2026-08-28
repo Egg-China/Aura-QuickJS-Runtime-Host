@@ -6,7 +6,7 @@ plugins { java }
 repositories { mavenCentral() }
 
 val auraJar = System.getenv("AURA_JAR")?.let(::file)
-    ?: file("../.ci/aura/Aura-Launcher-27.1.dev-6d37f20-next.jar")
+    ?: file("../.ci/aura/Aura-Launcher-27.1.dev-c2d7ec3-next.jar")
 require(auraJar.isFile) { "Set AURA_JAR to the exact Aura Launcher Next Shadow JAR" }
 
 dependencies {

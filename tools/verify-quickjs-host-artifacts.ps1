@@ -13,9 +13,9 @@ Add-Type -AssemblyName System.IO.Compression.FileSystem
 
 $expectedVersion = '0.1.0-beta.1'
 $expectedAuraRepository = 'Egg-China/Aura-Launcher'
-$expectedAuraCommit = '6d37f20d104c8e8d1c8b2b693ce1944207b85f84'
-$expectedAuraRun = '33159830461'
-$expectedAuraJarHash = 'd3a0918e4f27a8ce16958c7321ecb3a6113e1dc24b0762425b5fbd4d8d5c9d92'
+$expectedAuraCommit = 'c2d7ec3201825308c360c1a41aeafebcd7145e74'
+$expectedAuraRun = '33196503483'
+$expectedAuraJarHash = '2153be49da69c055232872c95a171091a526be24357b6f2b82b5af8f6d2a67c3'
 $platforms = @(
     'windows-x64',
     'windows-arm64',

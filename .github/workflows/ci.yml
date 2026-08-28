@@ -1,0 +1,223 @@
+name: QuickJS Runtime Host
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: read
+
+env:
+  AURA_REPOSITORY: Egg-China/Aura-Launcher
+  AURA_COMMIT: c2d7ec3201825308c360c1a41aeafebcd7145e74
+  AURA_RUN_ID: "33196503483"
+  AURA_JAR_SHA256: 2153be49da69c055232872c95a171091a526be24357b6f2b82b5af8f6d2a67c3
+  SDK_REPOSITORY: HMCL-Community/HMCL-CE-Plugin-SDK
+  SDK_COMMIT: a36719a890ed69d5db6dc126e0ebbb107a9d073b
+  HOST_VERSION: 0.1.0-beta.1
+  RUST_TOOLCHAIN: 1.97.1
+
+jobs:
+  resolve_aura:
+    name: Resolve exact Aura build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Verify successful private Aura run
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.AURA_REPOSITORY_TOKEN }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:GH_TOKEN)) {
+              throw 'AURA_REPOSITORY_TOKEN is required to access the private Aura repository'
+          }
+          $run = gh api "repos/$env:AURA_REPOSITORY/actions/runs/$env:AURA_RUN_ID" | ConvertFrom-Json
+          if ($run.head_branch -cne 'main' -or
+              $run.head_sha -cne $env:AURA_COMMIT -or
+              $run.conclusion -cne 'success' -or
+              $run.path -notlike '*.github/workflows/gradle.yml*') {
+              throw 'Pinned Aura run is not the required successful main Java CI run'
+          }
+
+  build:
+    name: Build ${{ matrix.platform }}
+    needs: resolve_aura
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 50
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { runner: windows-2025, platform: windows-x64, target: x86_64-pc-windows-msvc }
+          - { runner: windows-11-arm, platform: windows-arm64, target: aarch64-pc-windows-msvc }
+          - { runner: ubuntu-24.04, platform: linux-x64, target: x86_64-unknown-linux-gnu }
+          - { runner: ubuntu-24.04-arm, platform: linux-arm64, target: aarch64-unknown-linux-gnu }
+          - { runner: macos-15-intel, platform: macos-x64, target: x86_64-apple-darwin }
+          - { runner: macos-15, platform: macos-arm64, target: aarch64-apple-darwin }
+    steps:
+      - name: Check out QuickJS Host
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+
+      - name: Check out exact schema-v5 NPL validator
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          repository: ${{ env.SDK_REPOSITORY }}
+          ref: ${{ env.SDK_COMMIT }}
+          path: .ci/sdk
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961
+        with:
+          distribution: zulu
+          java-version: "17"
+
+      - name: Set up Gradle 9.6.1
+        uses: gradle/actions/setup-gradle@4c125117fe7c5aed11272ec4213f602f012f89f2
+        with:
+          gradle-version: "9.6.1"
+          cache-cleanup: never
+
+      - name: Install Linux libclang
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes libclang-dev
+
+      - name: Configure native compiler discovery
+        shell: pwsh
+        run: |
+          if ($env:RUNNER_OS -ceq 'Windows') {
+              $llvm = 'C:\Program Files\LLVM\bin'
+              if (-not (Test-Path -LiteralPath (Join-Path $llvm 'libclang.dll'))) {
+                  throw "GitHub runner libclang is missing from $llvm"
+              }
+              "LIBCLANG_PATH=$llvm" >> $env:GITHUB_ENV
+              'CFLAGS=/std:c11 /experimental:c11atomics' >> $env:GITHUB_ENV
+          } elseif ($env:RUNNER_OS -ceq 'macOS') {
+              $clang = (& xcrun --find clang).Trim()
+              $libclang = Join-Path (Split-Path (Split-Path $clang -Parent) -Parent) 'lib'
+              "LIBCLANG_PATH=$libclang" >> $env:GITHUB_ENV
+          }
+
+      - name: Set up Rust toolchain
+        shell: pwsh
+        run: |
+          rustup toolchain install $env:RUST_TOOLCHAIN `
+              --profile minimal --component rustfmt --component clippy `
+              --target '${{ matrix.target }}'
+          rustup override set $env:RUST_TOOLCHAIN
+          rustc --version
+
+      - name: Install locked author tools
+        shell: pwsh
+        run: |
+          npm --prefix sdk ci --ignore-scripts
+          npm --prefix sdk audit --audit-level=moderate
+
+      - name: Check Rust, TypeScript, and packaging tools
+        shell: pwsh
+        run: |
+          cargo fmt --all --check
+          cargo clippy --workspace --all-targets --target '${{ matrix.target }}' -- -D warnings
+          cargo test --workspace --target '${{ matrix.target }}'
+          npm --prefix sdk exec tsc -- --project sdk/tsconfig.json --noEmit
+          & ./tools/test-package-javascript-plugin.ps1
+          & ./tools/test-verify-quickjs-host-artifacts.ps1
+          & ./tools/test-publishing-tools.ps1
+
+      - name: Download and verify exact Aura Next JAR
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.AURA_REPOSITORY_TOKEN }}
+        run: |
+          gh run download $env:AURA_RUN_ID --repo $env:AURA_REPOSITORY `
+              --name "Aura-Launcher-$env:AURA_COMMIT" --dir .ci/aura
+          $jars = @(Get-ChildItem .ci/aura -Recurse -File -Filter 'Aura-Launcher-*-next.jar')
+          if ($jars.Count -ne 1) { throw "Expected one Aura Next JAR, found $($jars.Count)" }
+          $hash = (Get-FileHash -LiteralPath $jars[0].FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($hash -cne $env:AURA_JAR_SHA256) { throw 'Aura Next JAR SHA-256 does not match' }
+          "AURA_JAR=$($jars[0].FullName)" >> $env:GITHUB_ENV
+
+      - name: Test Java Provider and build native Host
+        shell: pwsh
+        run: |
+          gradle -p host-plugin test jar --no-daemon --stacktrace
+          cargo build --release --target '${{ matrix.target }}' -p aura-quickjs-host
+
+      - name: Package and validate platform NPL
+        shell: pwsh
+        run: |
+          $release = Join-Path 'target' '${{ matrix.target }}/release'
+          $name = if ('${{ matrix.platform }}'.StartsWith('windows-')) {
+              'aura-quickjs-host.exe'
+          } else {
+              'aura-quickjs-host'
+          }
+          $process = (Resolve-Path (Join-Path $release $name)).Path
+          $jar = (Resolve-Path 'host-plugin/build/libs/aura-quickjs-runtime-host-plugin.jar').Path
+          & ./tools/package-host-npl.ps1 -Platform '${{ matrix.platform }}' `
+              -Version $env:HOST_VERSION -ProcessHost $process -ProviderJar $jar `
+              -OutputDirectory .ci/output
+          $package = Resolve-Path ".ci/output/dev.hmclce.runtime.quickjs-host-v$env:HOST_VERSION-${{ matrix.platform }}.npl"
+          & ./.ci/sdk/tools/validate-npl.ps1 -Package $package
+          & ./tools/verify-quickjs-host-artifacts.ps1 `
+              -ArtifactManifest .ci/output/manifest.json -PackageDirectory .ci/output
+
+      - name: Upload immutable platform artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: quickjs-runtime-host-${{ matrix.platform }}
+          path: |
+            .ci/output/*.npl
+            .ci/output/quickjs-runtime-host-*.json
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 30
+
+  manifest:
+    name: Merge and verify release input
+    needs: [build]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Check out verification tools
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+
+      - name: Download every platform artifact
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $platforms = @(
+              'windows-x64', 'windows-arm64', 'linux-x64',
+              'linux-arm64', 'macos-x64', 'macos-arm64'
+          )
+          foreach ($platform in $platforms) {
+              gh run download $env:GITHUB_RUN_ID --repo $env:GITHUB_REPOSITORY `
+                  --name "quickjs-runtime-host-$platform" --dir .ci/release
+          }
+
+      - name: Merge, verify, and inventory release input
+        shell: pwsh
+        run: |
+          & ./tools/merge-artifact-manifests.ps1 -RecordDirectory .ci/release `
+              -Output .ci/release/quickjs-runtime-host-manifest.json
+          & ./tools/verify-quickjs-host-artifacts.ps1 `
+              -ArtifactManifest .ci/release/quickjs-runtime-host-manifest.json `
+              -PackageDirectory .ci/release
+          & ./tools/write-sbom.ps1 -Output .ci/release/quickjs-runtime-host.cdx.json
+
+      - name: Upload verified release input
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: quickjs-runtime-host-release-input
+          path: |
+            .ci/release/*.npl
+            .ci/release/quickjs-runtime-host-manifest.json
+            .ci/release/quickjs-runtime-host.cdx.json
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 30
