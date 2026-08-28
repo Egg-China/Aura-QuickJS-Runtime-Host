@@ -47,7 +47,5 @@ export interface AuraPluginContext {
   readonly bridge: AuraBridge;
 }
 
-declare module "aura:runtime" {
-  export const bridge: AuraBridge;
-  export { AuraError, AuraHandle };
-}
+/** Bridge singleton exported by the built-in aura:runtime module. */
+export declare const bridge: AuraBridge;

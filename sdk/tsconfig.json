@@ -1,0 +1,14 @@
+{
+  "compilerOptions": {
+    "target": "ES2023",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "strict": true,
+    "noEmit": true,
+    "baseUrl": ".",
+    "paths": {
+      "aura:runtime": ["./aura-runtime.d.ts"]
+    }
+  },
+  "include": ["aura-runtime.d.ts", "typecheck.ts"]
+}

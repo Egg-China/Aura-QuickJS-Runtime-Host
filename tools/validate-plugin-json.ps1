@@ -1,10 +1,13 @@
 [CmdletBinding()]
 param(
     [Parameter(Mandatory = $false)]
-    [string] $Path = (Join-Path $PSScriptRoot '..\host-plugin\plugin.json')
+    [string] $Path = ''
 )
 
 $ErrorActionPreference = 'Stop'
+if ([string]::IsNullOrWhiteSpace($Path)) {
+    $Path = Join-Path $PSScriptRoot '..\host-plugin\plugin.json'
+}
 $manifest = Get-Content -LiteralPath $Path -Raw | ConvertFrom-Json
 
 function Assert-Equal {
