@@ -2,6 +2,7 @@
 members = [
     "crates/aura-bridge-value",
     "crates/aura-runtime-protocol",
+    "crates/aura-quickjs-engine",
     "crates/aura-quickjs-host",
 ]
 resolver = "3"
