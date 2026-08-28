@@ -1,3 +1,4 @@
+use crate::bridge::BridgeState;
 use crate::module_loader::ModuleLoaderState;
 use crate::value::ValueIntrinsics;
 use libquickjs_ng_sys as qjs;
@@ -69,13 +70,14 @@ pub struct QuickJsRuntime {
     interrupt: Box<InterruptState>,
     pub(crate) module_loader: Option<Box<ModuleLoaderState>>,
     pub(crate) value_intrinsics: Option<ValueIntrinsics>,
+    pub(crate) bridge_state: Option<Box<BridgeState>>,
     _not_send_or_sync: std::marker::PhantomData<Rc<()>>,
 }
 
 /// Provides scoped access to a context owned by a `QuickJsRuntime`.
 pub struct Context<'runtime> {
     context: NonNull<qjs::JSContext>,
-    interrupt: &'runtime InterruptState,
+    interrupt: Option<&'runtime InterruptState>,
     _exclusive: std::marker::PhantomData<&'runtime mut qjs::JSContext>,
 }
 
@@ -115,6 +117,7 @@ impl QuickJsRuntime {
                 interrupt,
                 module_loader: None,
                 value_intrinsics: None,
+                bridge_state: None,
                 _not_send_or_sync: std::marker::PhantomData,
             };
             runtime.initialize_value_intrinsics()?;
@@ -140,7 +143,7 @@ impl QuickJsRuntime {
         self.interrupt.deadline.set(Some(deadline));
         let mut context = Context {
             context: self.context,
-            interrupt: &self.interrupt,
+            interrupt: Some(&self.interrupt),
             _exclusive: std::marker::PhantomData,
         };
         let result = call(&mut context);
@@ -202,7 +205,10 @@ impl Context<'_> {
     ///
     /// The context must have a pending exception and no other code may access it concurrently.
     pub(crate) unsafe fn classify_exception(&self, default_code: &'static str) -> EngineError {
-        if self.interrupt.interrupted.get() {
+        if self
+            .interrupt
+            .is_some_and(|interrupt| interrupt.interrupted.get())
+        {
             // SAFETY: The caller guarantees a pending exception on this owned context.
             unsafe { self.discard_exception() };
             return EngineError::new("deadline-exceeded");
@@ -258,16 +264,39 @@ impl Context<'_> {
     }
 
     pub(crate) fn deadline_expired(&self) -> bool {
-        self.interrupt
-            .deadline
-            .get()
-            .is_some_and(|deadline| Instant::now() >= deadline)
+        self.interrupt.is_some_and(|interrupt| {
+            interrupt
+                .deadline
+                .get()
+                .is_some_and(|deadline| Instant::now() >= deadline)
+        })
+    }
+
+    /// Creates scoped access around a live context received by a QuickJS callback.
+    ///
+    /// # Safety
+    ///
+    /// `context` must be non-null, live, exclusively used for the callback, and owned by this
+    /// engine crate for the entire returned lifetime.
+    pub(crate) unsafe fn from_raw(context: *mut qjs::JSContext) -> EngineResult<Self> {
+        Ok(Self {
+            context: NonNull::new(context).ok_or_else(|| EngineError::new("runtime-failure"))?,
+            interrupt: None,
+            _exclusive: std::marker::PhantomData,
+        })
     }
 }
 
 impl Drop for QuickJsRuntime {
     fn drop(&mut self) {
         self.interrupt.deadline.set(None);
+        if let Some(state) = self.bridge_state.take() {
+            // SAFETY: This is the same still-live context the state was registered against.
+            unsafe {
+                qjs::JS_SetContextOpaque(self.context.as_ptr(), std::ptr::null_mut());
+                state.release(self.context.as_ptr());
+            }
+        }
         if let Some(intrinsics) = self.value_intrinsics.take() {
             // SAFETY: The helper value belongs to the still-live owned context.
             unsafe { qjs::JS_FreeValue(self.context.as_ptr(), intrinsics.raw()) };

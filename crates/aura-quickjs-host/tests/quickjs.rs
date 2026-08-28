@@ -71,6 +71,69 @@ fn drives_a_real_quickjs_payload_through_process_lifecycle() {
     );
 }
 
+#[test]
+fn performs_an_even_id_bridge_callback_during_parent_invoke() {
+    let package = tempfile::tempdir().expect("create package");
+    std::fs::write(
+        package.path().join("aura-javascript.json"),
+        r#"{"schemaVersion":1,"module":"main.mjs"}"#,
+    )
+    .expect("write descriptor");
+    std::fs::write(
+        package.path().join("main.mjs"),
+        "import { bridge } from 'aura:runtime';\n\
+         export async function load() {}\n\
+         export async function enable() {}\n\
+         export async function invoke(_operation, input) { return await bridge.invoke('launcher.test.echo', input); }\n\
+         export async function disable() {}\n\
+         export async function unload() {}",
+    )
+    .expect("write module");
+    let value = Value::String("callback".to_owned());
+    let wire = value.to_wire().expect("encode callback value");
+    let input = framed([
+        message(1, MessageBody::Hello),
+        load(3, package.path()),
+        message(5, MessageBody::Enable),
+        message(
+            7,
+            MessageBody::Invoke {
+                operation: "hook".to_owned(),
+                input: wire.clone(),
+                callback_id: 53,
+            },
+        ),
+        message(
+            2,
+            MessageBody::CallbackResult {
+                output: wire.clone(),
+            },
+        ),
+        message(9, MessageBody::Disable),
+        message(11, MessageBody::Shutdown),
+    ]);
+    let output = SharedOutput::default();
+    ProcessServer::new(
+        Cursor::new(input),
+        output.clone(),
+        QuickJsGuestEngine::default(),
+    )
+    .serve()
+    .expect("serve callback lifecycle");
+
+    let responses = output.messages();
+    assert_eq!(responses.len(), 7);
+    assert!(matches!(
+        responses[3].body(),
+        MessageBody::BridgeInvoke { operation, input }
+            if operation == "launcher.test.echo" && input == &wire
+    ));
+    assert!(matches!(
+        responses[4].body(),
+        MessageBody::Result { output } if Value::from_wire(output).ok() == Some(value)
+    ));
+}
+
 #[derive(Clone, Default)]
 struct SharedOutput(Arc<Mutex<Vec<u8>>>);
 

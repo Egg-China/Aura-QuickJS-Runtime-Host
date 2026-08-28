@@ -1,3 +1,4 @@
+use crate::bridge;
 use crate::{EngineError, EngineResult, QuickJsRuntime};
 use libquickjs_ng_sys as qjs;
 use std::ffi::{CStr, CString, c_char, c_void};
@@ -243,7 +244,12 @@ unsafe extern "C" fn load_callback(
         // SAFETY: opaque is the exclusively accessed loader allocation during this callback.
         let state = unsafe { &mut *opaque.cast::<ModuleLoaderState>() };
         if name == "aura:runtime" {
-            return Err(EngineError::new("invalid-module"));
+            // SAFETY: The callback supplies the live context and NUL-terminated module name.
+            let module = unsafe { bridge::create_module(context, module_name) };
+            if module.is_null() {
+                state.record(EngineError::new("runtime-failure"));
+            }
+            return Ok(module);
         }
         let source = state.read(name)?;
         let source = CString::new(source).map_err(|_| EngineError::new("invalid-module"))?;

@@ -494,7 +494,7 @@ fn read_error(
     }
 }
 
-fn parse_error_code(code: &str) -> Option<ErrorCode> {
+pub(crate) fn parse_error_code(code: &str) -> Option<ErrorCode> {
     match code {
         "invalid-argument" => Some(ErrorCode::InvalidArgument),
         "invalid-result" => Some(ErrorCode::InvalidResult),

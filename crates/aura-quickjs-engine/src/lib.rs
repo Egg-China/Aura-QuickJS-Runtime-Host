@@ -1,5 +1,6 @@
 //! Bounded QuickJS-NG engine used by the isolated Aura Host.
 
+mod bridge;
 mod module_loader;
 mod plugin;
 mod runtime;

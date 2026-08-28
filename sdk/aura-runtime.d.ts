@@ -33,3 +33,21 @@ export declare class AuraError {
     | "unavailable"
     | "internal";
 }
+
+/** Bridge callbacks reauthorized by Aura for the active payload. */
+export interface AuraBridge {
+  invoke(operation: string, input: AuraValue): Promise<AuraValue>;
+  retain(handle: AuraHandle): Promise<void>;
+  release(handle: AuraHandle): Promise<void>;
+}
+
+/** Immutable context passed only to the payload's load function. */
+export interface AuraPluginContext {
+  readonly pluginId: bigint;
+  readonly bridge: AuraBridge;
+}
+
+declare module "aura:runtime" {
+  export const bridge: AuraBridge;
+  export { AuraError, AuraHandle };
+}

@@ -20,7 +20,6 @@ pub struct QuickJsPlugin {
     namespace: Option<qjs::JSValue>,
     plugin_id: u64,
     session: u64,
-    _bridge: Arc<dyn BridgeTransport>,
 }
 
 impl QuickJsPlugin {
@@ -34,6 +33,7 @@ impl QuickJsPlugin {
     ) -> EngineResult<Self> {
         let module_name = ModuleLoaderState::root_name(module)?;
         let mut runtime = QuickJsRuntime::new(Limits::default())?;
+        runtime.install_bridge(plugin_id, session, bridge)?;
         runtime.install_module_loader(root)?;
         let source = runtime.module_source(&module_name)?;
         let result = runtime.run_with_deadline(deadline()?, |context| {
@@ -48,10 +48,9 @@ impl QuickJsPlugin {
             namespace: Some(namespace),
             plugin_id,
             session,
-            _bridge: bridge,
         };
         plugin.validate_exports()?;
-        plugin.call("load")?;
+        plugin.call_load()?;
         Ok(plugin)
     }
 
@@ -155,6 +154,19 @@ impl QuickJsPlugin {
             .ok_or_else(|| EngineError::new("runtime-failure"))?;
         self.runtime
             .run_with_deadline(deadline()?, |context| call_export(context, namespace, name))
+    }
+
+    fn call_load(&mut self) -> EngineResult<()> {
+        let namespace = self
+            .namespace
+            .ok_or_else(|| EngineError::new("runtime-failure"))?;
+        let plugin_context = self.runtime.plugin_context()?;
+        self.runtime.run_with_deadline(deadline()?, |context| {
+            let result = call_export_result(context, namespace, "load", &[plugin_context])?;
+            // SAFETY: result belongs to this context and is released exactly once.
+            unsafe { qjs::JS_FreeValue(context.raw(), result) };
+            Ok(())
+        })
     }
 
     fn release_namespace(&mut self) {
