@@ -1,3 +1,4 @@
+use crate::module_loader::ModuleLoaderState;
 use libquickjs_ng_sys as qjs;
 use std::cell::Cell;
 use std::ffi::{CStr, CString, c_void};
@@ -38,7 +39,7 @@ impl EngineError {
         self.code
     }
 
-    fn new(code: &'static str) -> Self {
+    pub(crate) fn new(code: &'static str) -> Self {
         Self { code }
     }
 }
@@ -65,6 +66,7 @@ pub struct QuickJsRuntime {
     runtime: NonNull<qjs::JSRuntime>,
     context: NonNull<qjs::JSContext>,
     interrupt: Box<InterruptState>,
+    pub(crate) module_loader: Option<Box<ModuleLoaderState>>,
     _not_send_or_sync: std::marker::PhantomData<Rc<()>>,
 }
 
@@ -109,6 +111,7 @@ impl QuickJsRuntime {
                 runtime,
                 context,
                 interrupt,
+                module_loader: None,
                 _not_send_or_sync: std::marker::PhantomData,
             })
         }
@@ -139,6 +142,14 @@ impl QuickJsRuntime {
         self.interrupt.deadline.set(None);
         result
     }
+
+    pub(crate) fn raw_runtime(&self) -> *mut qjs::JSRuntime {
+        self.runtime.as_ptr()
+    }
+
+    pub(crate) fn raw_context(&self) -> *mut qjs::JSContext {
+        self.context.as_ptr()
+    }
 }
 
 impl Context<'_> {
@@ -162,7 +173,7 @@ impl Context<'_> {
         if unsafe { qjs::JS_Ext_IsException(value) } {
             // SAFETY: The active exception belongs to this context and the returned exception
             // value is consumed by classify_exception.
-            return Err(unsafe { self.classify_exception() });
+            return Err(unsafe { self.classify_exception("evaluation-failed") });
         }
 
         let mut result = 0_i64;
@@ -185,7 +196,7 @@ impl Context<'_> {
     /// # Safety
     ///
     /// The context must have a pending exception and no other code may access it concurrently.
-    unsafe fn classify_exception(&self) -> EngineError {
+    pub(crate) unsafe fn classify_exception(&self, default_code: &'static str) -> EngineError {
         if self.interrupt.interrupted.get() {
             // SAFETY: The caller guarantees a pending exception on this owned context.
             unsafe { self.discard_exception() };
@@ -221,7 +232,7 @@ impl Context<'_> {
             {
                 EngineError::new("resource-limit")
             }
-            _ => EngineError::new("evaluation-failed"),
+            _ => EngineError::new(default_code),
         }
     }
 
@@ -235,6 +246,17 @@ impl Context<'_> {
         let exception = unsafe { qjs::JS_GetException(self.context.as_ptr()) };
         // SAFETY: exception was just removed from this context and must be released once.
         unsafe { qjs::JS_FreeValue(self.context.as_ptr(), exception) };
+    }
+
+    pub(crate) fn raw(&self) -> *mut qjs::JSContext {
+        self.context.as_ptr()
+    }
+
+    pub(crate) fn deadline_expired(&self) -> bool {
+        self.interrupt
+            .deadline
+            .get()
+            .is_some_and(|deadline| Instant::now() >= deadline)
     }
 }
 

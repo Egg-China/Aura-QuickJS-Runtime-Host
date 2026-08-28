@@ -6,7 +6,11 @@ license.workspace = true
 rust-version.workspace = true
 
 [dependencies]
+aura-runtime-protocol = { path = "../aura-runtime-protocol" }
 libquickjs-ng-sys = "=0.13.0"
+
+[dev-dependencies]
+tempfile = "3.21.0"
 
 [lints]
 workspace = true

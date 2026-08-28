@@ -19,13 +19,16 @@ version = "0.1.0-beta.1"
 name = "aura-quickjs-engine"
 version = "0.1.0-beta.1"
 dependencies = [
+ "aura-runtime-protocol",
  "libquickjs-ng-sys",
+ "tempfile",
 ]
 
 [[package]]
 name = "aura-quickjs-host"
 version = "0.1.0-beta.1"
 dependencies = [
+ "aura-quickjs-engine",
  "aura-runtime-protocol",
  "serde",
  "serde_json",
