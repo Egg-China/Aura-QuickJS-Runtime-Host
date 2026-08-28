@@ -52,6 +52,12 @@ function matrixPlatforms(workflow) {
   return include.map((entry) => entry.platform);
 }
 
+function stepByName(job, name) {
+  const step = job?.steps?.find((candidate) => candidate.name === name);
+  assert(step !== undefined, `CI step is missing: ${name}`);
+  return step;
+}
+
 const ci = readWorkflow(".github/workflows/ci.yml");
 const release = readWorkflow(".github/workflows/release.yml");
 const ciTriggers = triggerOf(ci);
@@ -77,6 +83,19 @@ assert(
 );
 assert(ci.jobs?.build?.strategy?.["fail-fast"] === false, "CI matrix must keep all platform evidence");
 assert(ci.jobs?.manifest?.needs?.includes?.("build"), "CI manifest job must depend on all platform builds");
+const matrix = ci.jobs?.build?.strategy?.matrix?.include;
+assert(matrix.find((entry) => entry.platform === "windows-x64")?.msvcArch === "x64", "Windows x64 MSVC architecture is wrong");
+assert(matrix.find((entry) => entry.platform === "windows-arm64")?.msvcArch === "arm64", "Windows ARM64 MSVC architecture is wrong");
+const msvcSetup = stepByName(ci.jobs?.build, "Set up MSVC");
+assert(
+  msvcSetup.uses === "ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756",
+  "Windows builds must use the pinned MSVC environment action",
+);
+const compilerSetup = stepByName(ci.jobs?.build, "Configure native compiler discovery");
+assert(
+  compilerSetup.run.includes("TARGET_CC=cl.exe"),
+  "Windows builds must select cl.exe for QuickJS C11 atomics flags",
+);
 
 const releaseText = JSON.stringify(release);
 assert(releaseText.includes("verify-quickjs-host-artifacts.ps1"), "release must verify downloaded NPLs");

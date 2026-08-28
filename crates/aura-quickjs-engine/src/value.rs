@@ -94,8 +94,8 @@ impl QuickJsRuntime {
             let kind = unsafe {
                 if qjs::JS_Ext_IsBigInt(raw) {
                     "bigint"
-                } else if qjs::JS_GetTypedArrayType(raw)
-                    == qjs::JSTypedArrayEnum_JS_TYPED_ARRAY_UINT8
+                } else if i64::from(qjs::JS_GetTypedArrayType(raw))
+                    == i64::from(qjs::JSTypedArrayEnum_JS_TYPED_ARRAY_UINT8)
                 {
                     "Uint8Array"
                 } else if qjs::JS_IsMap(raw) {
@@ -315,7 +315,7 @@ fn from_raw_inner(
         }
 
         let typed_array = qjs::JS_GetTypedArrayType(raw);
-        if typed_array == qjs::JSTypedArrayEnum_JS_TYPED_ARRAY_UINT8 {
+        if i64::from(typed_array) == i64::from(qjs::JSTypedArrayEnum_JS_TYPED_ARRAY_UINT8) {
             let mut length = 0_usize;
             let bytes = qjs::JS_GetUint8Array(context.raw(), &mut length, raw);
             if bytes.is_null() {
