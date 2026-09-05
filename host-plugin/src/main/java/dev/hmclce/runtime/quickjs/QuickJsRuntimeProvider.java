@@ -1,10 +1,14 @@
 package dev.hmclce.runtime.quickjs;
 
+import org.jackhuang.hmcl.plugin.PluginHookEvent;
+import org.jackhuang.hmcl.plugin.PluginHookResult;
+import org.jackhuang.hmcl.plugin.bridge.PluginCapabilityToken;
 import org.jackhuang.hmcl.plugin.runtime.RuntimePayloadContext;
 import org.jackhuang.hmcl.plugin.runtime.RuntimePayloadHandle;
 import org.jackhuang.hmcl.plugin.runtime.RuntimeProvider;
 import org.jackhuang.hmcl.plugin.runtime.RuntimeProviderDeclaration;
 import org.jackhuang.hmcl.plugin.runtime.RuntimeProviderDescriptor;
+import org.jackhuang.hmcl.plugin.runtime.RuntimeHookWireCodec;
 import org.jackhuang.hmcl.plugin.runtime.process.RuntimeProcessSession;
 import org.jetbrains.annotations.NotNullByDefault;
 import org.jetbrains.annotations.Nullable;
@@ -16,11 +20,12 @@ import java.time.Duration;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.UUID;
 
 /// Provides isolated QuickJS payload execution through Aura's shared process supervisor.
 @NotNullByDefault
-public final class QuickJsRuntimeProvider implements RuntimeProvider {
+public final class QuickJsRuntimeProvider implements RuntimeProvider, RuntimeProvider.HookInvoker {
     /// Default deadline for generic payload invocation.
     private static final Duration INVOCATION_TIMEOUT = Duration.ofSeconds(10L);
 
@@ -119,6 +124,37 @@ public final class QuickJsRuntimeProvider implements RuntimeProvider {
             long callbackId
     ) throws IOException {
         return requireSession(handle).invoke(operation, input, callbackId, INVOCATION_TIMEOUT);
+    }
+
+    /// Invokes one Hook through Aura's canonical language-neutral wire contract.
+    ///
+    /// The Java capability token is checked for presence but never serialized. The shared process session receives
+    /// the dispatcher's exact positive deadline and owns enforcement of that deadline.
+    ///
+    /// @param handle Provider-owned payload handle
+    /// @param token opaque short-lived launcher capability token
+    /// @param event immutable Hook event
+    /// @param timeout positive dispatcher callback deadline
+    /// @return decoded Hook result, or `null` for malformed process output
+    /// @throws IOException if ownership, event encoding, transport, or payload execution fails
+    @Override
+    public synchronized @Nullable PluginHookResult invokeHook(
+            RuntimePayloadHandle handle,
+            PluginCapabilityToken token,
+            PluginHookEvent event,
+            Duration timeout
+    ) throws IOException {
+        Objects.requireNonNull(token, "token");
+        Duration deadline = Objects.requireNonNull(timeout, "timeout");
+        if (deadline.isZero() || deadline.isNegative()) {
+            throw new IllegalArgumentException("QuickJS Runtime Hook timeout must be positive");
+        }
+        return RuntimeHookWireCodec.decodeResult(requireSession(handle).invoke(
+                RuntimeHookWireCodec.operation(event.point()),
+                RuntimeHookWireCodec.encodeEvent(event),
+                0L,
+                deadline
+        ));
     }
 
     /// Gracefully shuts down and removes one payload session.

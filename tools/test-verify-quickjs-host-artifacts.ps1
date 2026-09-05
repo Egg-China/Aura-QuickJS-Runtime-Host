@@ -111,15 +111,15 @@ function New-Record {
 }
 
 function Write-Manifest {
-    param([string] $Path, [object[]] $Artifacts, [string] $AuraCommit = 'c2d7ec3201825308c360c1a41aeafebcd7145e74')
+    param([string] $Path, [object[]] $Artifacts, [string] $AuraCommit = '636b06aad03c5d21946369c836280c891c13054d')
     $manifest = [pscustomobject][ordered]@{
         schemaVersion = 1
         version = '0.1.0-beta.1'
         aura = [pscustomobject][ordered]@{
             repository = 'Egg-China/Aura-Launcher'
             commit = $AuraCommit
-            runId = '33196503483'
-            jarSha256 = '2153be49da69c055232872c95a171091a526be24357b6f2b82b5af8f6d2a67c3'
+            runId = '33931508945'
+            jarSha256 = '674f717f5f97a5b7e8f7f20e4d60aa2e25451d71a96ab475f4595d0482f99d4b'
         }
         artifacts = $Artifacts
     }

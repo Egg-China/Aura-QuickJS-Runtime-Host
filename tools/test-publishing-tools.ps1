@@ -85,7 +85,7 @@ try {
     Assert-Condition ((@($merged.artifacts.platform) -join ',') -ceq ($platforms -join ',')) `
         'Merged manifest platform order is not canonical'
     Assert-Condition ($merged.aura.jarSha256 -ceq `
-        '2153be49da69c055232872c95a171091a526be24357b6f2b82b5af8f6d2a67c3') `
+        '674f717f5f97a5b7e8f7f20e4d60aa2e25451d71a96ab475f4595d0482f99d4b') `
         'Merged manifest lost Aura JAR provenance'
 
     $sbomPath = Join-Path $temporary 'quickjs-runtime-host.cdx.json'

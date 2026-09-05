@@ -10,9 +10,9 @@ const expectedPlatforms = [
   "macos-arm64",
 ];
 const expectedProvenance = {
-  AURA_COMMIT: "c2d7ec3201825308c360c1a41aeafebcd7145e74",
-  AURA_RUN_ID: "33196503483",
-  AURA_JAR_SHA256: "2153be49da69c055232872c95a171091a526be24357b6f2b82b5af8f6d2a67c3",
+  AURA_COMMIT: "636b06aad03c5d21946369c836280c891c13054d",
+  AURA_RUN_ID: "33931508945",
+  AURA_JAR_SHA256: "674f717f5f97a5b7e8f7f20e4d60aa2e25451d71a96ab475f4595d0482f99d4b",
 };
 
 function readWorkflow(file) {
@@ -96,6 +96,27 @@ assert(
   compilerSetup.run.includes("TARGET_CC=cl.exe"),
   "Windows builds must select cl.exe for QuickJS C11 atomics flags",
 );
+
+const integration = stepByName(ci.jobs?.build, "Test Java Provider and build native Host");
+assert(ci.jobs.build.if === undefined && integration.if === undefined,
+  "real-process integration must run on every platform without a condition");
+assert(ci.jobs.build["continue-on-error"] !== true && integration["continue-on-error"] !== true,
+  "real-process integration must not tolerate failure");
+assert(integration.shell === "pwsh", "real-process integration requires the cross-platform PowerShell setup");
+assert(integration.run.includes("$env:AURA_QUICKJS_PROCESS_HOST = (Resolve-Path") &&
+  integration.run.includes("${{ matrix.target }}/release") &&
+  integration.run.includes("${{ matrix.platform }}"),
+  "real-process integration must receive the current platform native Host");
+const buildIndex = integration.run.indexOf("cargo build --release");
+const testIndex = integration.run.indexOf("gradle -p host-plugin test jar --rerun-tasks");
+assert(buildIndex >= 0 && testIndex > buildIndex,
+  "native Host must be built before mandatory Java real-process tests");
+assert(!/--exclude-task|-x\s|--tests\s/.test(integration.run),
+  "real-process integration must not filter out tests");
+const packaging = stepByName(ci.jobs?.build, "Package and validate platform NPL");
+assert(packaging.if === undefined && packaging["continue-on-error"] !== true &&
+  packaging.run.includes("test-built-host-npl.ps1"),
+  "every built NPL must pass behavioral rejection tests");
 
 const releaseText = JSON.stringify(release);
 assert(releaseText.includes("verify-quickjs-host-artifacts.ps1"), "release must verify downloaded NPLs");

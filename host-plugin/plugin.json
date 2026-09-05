@@ -23,6 +23,6 @@
     "abis": [1],
     "bridgeAbi": 1,
     "executionModes": ["isolated"],
-    "features": ["bridge", "hooks", "native"]
+    "features": ["bridge", "hooks", "patches", "native"]
   }]
 }

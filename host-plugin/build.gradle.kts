@@ -6,7 +6,7 @@ plugins { java }
 repositories { mavenCentral() }
 
 val auraJar = System.getenv("AURA_JAR")?.let(::file)
-    ?: file("../.ci/aura/Aura-Launcher-27.1.dev-c2d7ec3-next.jar")
+    ?: file("../.ci/aura-636b06a/Aura-Launcher-27.1.dev-636b06a-next.jar")
 require(auraJar.isFile) { "Set AURA_JAR to the exact Aura Launcher Next Shadow JAR" }
 
 dependencies {
@@ -18,7 +18,14 @@ dependencies {
 }
 
 tasks.withType<JavaCompile>().configureEach { options.release.set(17) }
-tasks.withType<Test>().configureEach { useJUnitPlatform() }
+tasks.withType<Test>().configureEach {
+    useJUnitPlatform()
+    processHost.orNull?.let { systemProperty("aura.quickjs.processHost", it) }
+    systemProperty(
+        "aura.quickjs.launchHookSample",
+        file("../examples/launch-hook").absolutePath
+    )
+}
 tasks.withType<AbstractArchiveTask>().configureEach {
     isPreserveFileTimestamps = false
     isReproducibleFileOrder = true

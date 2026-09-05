@@ -3,7 +3,7 @@
   "id": "dev.hmclce.example.javascript.launch-hook",
   "name": "Aura JavaScript Game Launch Hook Plugin",
   "version": "1.0.0",
-  "description": "Isolated JavaScript example that observes the before-game-launch Hook.",
+  "description": "Isolated JavaScript example that observes launch Hooks and FileUtils.getName after Patches.",
   "author": "Aura Launcher Community",
   "type": "java",
   "runtime": "javascript",
@@ -13,9 +13,14 @@
   "executionMode": "isolated",
   "runtimeProvider": "dev.hmclce.runtime.quickjs-host",
   "dependencies": [],
-  "permissions": ["launcher-hook"],
-  "requiredPermissions": ["launcher-hook"],
+  "permissions": ["launcher-hook", "launcher-patch"],
+  "requiredPermissions": ["launcher-hook", "launcher-patch"],
   "hooks": ["before-game-launch"],
-  "patches": [],
+  "patches": [{
+    "target": "org.jackhuang.hmcl.util.io.FileUtils",
+    "method": "getName",
+    "type": "after",
+    "parameters": ["java.nio.file.Path"]
+  }],
   "launcherVersion": ">=27.1-0-next"
 }

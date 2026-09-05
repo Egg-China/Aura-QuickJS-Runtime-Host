@@ -5,7 +5,16 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 #[test]
-fn launch_hook_example_preserves_the_validated_launch_plan() {
+fn launch_hook_example_returns_canonical_unchanged() {
+    assert_example("hook.before-game-launch", "contractVersion");
+}
+
+#[test]
+fn launch_hook_example_returns_canonical_patch_unchanged() {
+    assert_example("aura.patch.v1", "schemaVersion");
+}
+
+fn assert_example(operation: &str, version_field: &str) {
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("../../examples/launch-hook")
         .canonicalize()
@@ -22,9 +31,12 @@ fn launch_hook_example_preserves_the_validated_launch_plan() {
     ]);
     assert_eq!(
         plugin
-            .invoke("before-game-launch", &input, 67)
+            .invoke(operation, &input, 0)
             .expect("invoke launch Hook"),
-        input
+        Value::Map(vec![
+            (version_field.into(), Value::Integer(1)),
+            ("action".into(), Value::String("unchanged".into())),
+        ])
     );
     plugin.disable().expect("disable example");
     plugin.unload().expect("unload example");

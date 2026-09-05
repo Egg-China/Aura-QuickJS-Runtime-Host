@@ -13,9 +13,9 @@ Add-Type -AssemblyName System.IO.Compression.FileSystem
 
 $expectedVersion = '0.1.0-beta.1'
 $expectedAuraRepository = 'Egg-China/Aura-Launcher'
-$expectedAuraCommit = 'c2d7ec3201825308c360c1a41aeafebcd7145e74'
-$expectedAuraRun = '33196503483'
-$expectedAuraJarHash = '2153be49da69c055232872c95a171091a526be24357b6f2b82b5af8f6d2a67c3'
+$expectedAuraCommit = '636b06aad03c5d21946369c836280c891c13054d'
+$expectedAuraRun = '33931508945'
+$expectedAuraJarHash = '674f717f5f97a5b7e8f7f20e4d60aa2e25451d71a96ab475f4595d0482f99d4b'
 $platforms = @(
     'windows-x64',
     'windows-arm64',
@@ -122,7 +122,7 @@ function Assert-PluginManifest {
         (@($runtime.abis) -join ',') -ceq '1' -and
         $runtime.bridgeAbi -eq 1 -and
         (@($runtime.executionModes) -join ',') -ceq 'isolated' -and
-        (@($runtime.features) -join ',') -ceq 'bridge,hooks,native'
+        (@($runtime.features) -join ',') -ceq 'bridge,hooks,patches,native'
     ) 'NPL JavaScript runtime declaration is invalid'
 }
 

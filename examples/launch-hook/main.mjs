@@ -14,13 +14,17 @@ export function enable() {
 }
 
 export function invoke(operation, input) {
-  if (!enabled || operation !== "before-game-launch" || !(input instanceof Map)) {
-    throw new Error("unsupported Hook invocation");
+  if (!enabled || !(input instanceof Map)) {
+    throw new Error("invalid callback invocation");
   }
-  if (input.has("workingDirectory")) {
-    input.set("workingDirectory", input.get("workingDirectory"));
+  // Observe only. Never modify the request or retain invocation-local handles.
+  if (operation === "hook.before-game-launch") {
+    return new Map([["contractVersion", 1n], ["action", "unchanged"]]);
   }
-  return input;
+  if (operation === "aura.patch.v1") {
+    return new Map([["schemaVersion", 1n], ["action", "unchanged"]]);
+  }
+  throw new Error("unsupported callback operation");
 }
 
 export function disable() {
